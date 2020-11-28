@@ -40,7 +40,7 @@ interface CompData {
     fileList: any [];
     uploading: boolean;
     number: number;
-    fileUploadMap: any;
+    fileUploadSet: Set<number>;
 }
 
 let worker
