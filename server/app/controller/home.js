@@ -49,8 +49,19 @@ class HomeController extends Controller {
         const { name, hash, size = 0} = ctx.request.body
         const filePath = path.resolve(this.config.baseDir, `app/public/${hash}`)
         const fileUrl = path.resolve(this.config.baseDir, `app/public/${name}`)
-        const chunkNames = fs.readdirSync(filePath) 
-        await Promise.all(chunkNames
+        let chunks = []
+
+        await new Promise((resolve, reject) => {
+            fs.readdir(filePath, (error, chunkNames) => {
+                if (error) {
+                    reject(error)
+                } else {
+                    chunks = chunkNames
+                    resolve()
+                }
+            }) 
+        })
+        await Promise.all(chunks
             .sort((a, b) => a.split('-')[1] - b.split('-')[1])
             .map((chunkName, index) => new Promise(resolve => {
                 const pipeStream = (name, writerStream) => {
@@ -64,7 +75,7 @@ class HomeController extends Controller {
                     start: index * size,
                     end: (index + 1) * size
                 }))
-            })))
+        })))
             
         ctx.body = {
             url: fileUrl,
@@ -73,14 +84,25 @@ class HomeController extends Controller {
         }
     }
 
-    checkFile() {
+    async checkFile() {
 
         const { ctx } = this;
         const { hash } = ctx.request.query
         const map = {}
         const filePath = path.resolve(this.config.baseDir, `app/public/${hash}`)
+        
         if (fs.existsSync(filePath)) {
-            const chunks = fs.readdirSync(filePath)
+            let chunks = []
+            await new Promise((resolve, reject) => {
+                fs.readdir(filePath, (error, chunkNames) => {
+                    if (error) {
+                        reject(error)
+                    } else {
+                        chunks = chunkNames
+                        resolve()
+                    }
+                }) 
+            })
             for (const chunk of chunks) {
                 map[chunk] = chunk
             }
