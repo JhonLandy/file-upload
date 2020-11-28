@@ -14,11 +14,5 @@ run/
 .nyc_output/
 files
 2020
-<<<<<<< HEAD
-<<<<<<< HEAD
-app/public/
-=======
->>>>>>> parent of 5be88b7 (断点续传最新)
-=======
 app/public
->>>>>>> parent of 2bb0117 (断点续传最新)
+
