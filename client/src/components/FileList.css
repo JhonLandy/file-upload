@@ -1,0 +1,39 @@
+@charset 'utf-8';
+
+ul, li, p {margin:0; padding: 0}
+
+.list {
+    padding: 10px 0;
+}
+
+.list .item {
+    cursor: pointer;
+    transition: .5s;
+}
+.list .item:hover {
+    background: #e8e8e8;
+}
+.file-name {
+    font-size: 12px;
+}
+.upload-progress {
+    width: 100%;
+}
+.percent {
+    font-size: 12px;
+}
+.success {
+    font-size: 12px;
+    font-weight: blod;
+    color: #92cb3d
+}
+.fail {
+    font-size: 12px;
+    font-weight: blod;
+    color: red
+}
+.waiting {
+    font-size: 12px;
+    font-weight: blod;
+    color: orange;
+}
