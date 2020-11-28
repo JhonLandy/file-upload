@@ -12,6 +12,7 @@ import MyWorker from 'worker-loader!./web.worker.js';
 import FileList from './components/FileList';
 import Vue from 'vue';
 import Request from './http/request';
+import { Interface } from 'readline';
 
 
 interface FileInfo {
@@ -38,7 +39,8 @@ interface CompData {
     uploadQueue: Promise<any> [];
     fileList: any [];
     uploading: boolean;
-    fileUploadQueue: string [];
+    number: number;
+    fileUploadMap: any;
 }
 
 let worker
@@ -56,7 +58,8 @@ export default Vue.extend({
         uploadQueue: [],
         fileList: [],
         uploading: false,
-        fileUploadQueue: []//当前正在上传的文件队列
+        number: 0,
+        fileUploadSet: new Set()//当前正在上传的文件队列
     }),
 
     methods: {
@@ -157,11 +160,20 @@ export default Vue.extend({
                 }
             })
         },
+        confirmUplodeFile(fileList: FileInfo []): FileInfo [] {
+            return fileList.filter((file: FileInfo) => {
+                if (!file.isUpload) {
+                    this.fileUploadSet.add(file)//标记要上传的文件数
+                    return true
+                }
+            })
+        },
         upLoadFile(): Promise<any> {
             let index = 0
             const callback = async (resolve) => {
-                while (this.fileList[index]) {
-                    const currentFile: FileInfo = this.fileList[index++]
+                const fileQueue = this.confirmUplodeFile(this.fileList)
+                while (fileQueue[index]) {
+                    const currentFile: FileInfo = fileQueue[index++]
                     if (currentFile.isUpload) continue
                     console.log('---------开始切片')
                     const chunks = await this.fileSlice(currentFile, 0)
@@ -173,6 +185,7 @@ export default Vue.extend({
                     const {chunks: map} = await Request().get('check', {
                         params: { hash }
                     })
+                    
                     await Promise.all(
                         chunks
                         .filter((_, index: number) => !map[`${hash}-${index}`])
@@ -195,27 +208,26 @@ export default Vue.extend({
                                 }
                             })
                         })
-                    ).then(async ({ length }) => {
-                        if (!length) {
-                            resolve()
-                        } else {
+                    ).then(async ({length}) => {
+                        if (length) {
                             await Request().post('/merge', {
                                 name: currentFile.name,
                                 size: currentFile.size,
                                 hash
                             })
-                            this.fileUploadQueue.push(hash)
-                            if (this.fileUploadQueue.length === this.fileList.length) {
-                                resolve({
-                                    url: [],
-                                    name: currentFile.name,
-                                    hash
-                                })
-                            }
                         }
                         currentFile.progress = 100
                         currentFile.uploading = false
                         currentFile.isUpload = true
+                        if (this.fileUploadSet.size === ++this.number) {
+                            console.log(this.fileUploadSet.size)
+                            this.fileUploadSet.clear()
+                            resolve({
+                                url: [],
+                                name: currentFile.name,
+                                hash
+                            })
+                        }
                     })
                 }
             }
