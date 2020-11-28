@@ -175,6 +175,7 @@ export default Vue.extend({
                 while (fileQueue[index]) {
                     const currentFile: FileInfo = fileQueue[index++]
                     if (currentFile.isUpload) continue
+                    currentFile.uploading = true
                     console.log('---------开始切片')
                     const chunks = await this.fileSlice(currentFile, 0)
                     console.log('---------计算哈希')
@@ -198,7 +199,7 @@ export default Vue.extend({
                             form.append('hash', hash)
                             form.append('file', chunk.chunk)
                             
-                            currentFile.uploading = true
+                            
                             return Request().post('/upload', form,  {
                                 onUploadProgress: async (progressEvent) => {
                                     console.log(progressEvent)
