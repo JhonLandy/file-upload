@@ -133,7 +133,7 @@ export default Vue.extend({
             //参照散列的思想，不进行文件的全量hash计算，减少hash的计算量
             const chunks: (Blob []) = []
             const file: File = filer.file
-            const offset =  1024 * 2 * 2
+            const offset =  1024 * 1024 * 2
 
             let start = 0
             let mid = start + offset / 2
@@ -198,7 +198,6 @@ export default Vue.extend({
                             form.append('size', String(currentFile.size))
                             form.append('hash', hash)
                             form.append('file', chunk.chunk)
-                            
                             
                             return Request().post('/upload', form,  {
                                 onUploadProgress: async (progressEvent) => {
