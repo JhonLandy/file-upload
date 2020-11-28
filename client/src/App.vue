@@ -170,9 +170,14 @@ export default Vue.extend({
                     // let rangeValue: number 
                     console.log(chunks) 
                     console.log(hash)
-                    Promise.all(
+                    const {chunks: map} = await Request().get('check', {
+                        params: { hash }
+                    })
+                    await Promise.all(
                         chunks
+                        .filter((_, index: number) => !map[`${hash}-${index}`])
                         .map((chunk: Chunk, index: number) => {
+                            console.log(`${hash}-${index}`)
                             const form = new FormData()
                             form.append('name', `${hash}-${index}`)
                             form.append('type', currentFile.type)
@@ -190,23 +195,27 @@ export default Vue.extend({
                                 }
                             })
                         })
-                    ).then(async () => {
-                        const result = await Request().post('/merge', {
-                            name: currentFile.name,
-                            size: currentFile.size,
-                            hash
-                        })
-                        this.fileUploadQueue.push(hash)
-                        currentFile.uploading = false
-                        currentFile.isUpload = true
-                        if (this.fileUploadQueue.length === this.fileList.length) {
-                            resolve({
-                                url: [],
+                    ).then(async ({ length }) => {
+                        if (!length) {
+                            resolve()
+                        } else {
+                            await Request().post('/merge', {
                                 name: currentFile.name,
+                                size: currentFile.size,
                                 hash
                             })
+                            this.fileUploadQueue.push(hash)
+                            if (this.fileUploadQueue.length === this.fileList.length) {
+                                resolve({
+                                    url: [],
+                                    name: currentFile.name,
+                                    hash
+                                })
+                            }
                         }
-                        return result
+                        currentFile.progress = 100
+                        currentFile.uploading = false
+                        currentFile.isUpload = true
                     })
                 }
             }

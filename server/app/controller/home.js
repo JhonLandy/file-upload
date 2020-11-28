@@ -66,7 +66,6 @@ class HomeController extends Controller {
                 }))
             })))
             
-        console.log('合并陈工')
         ctx.body = {
             url: fileUrl,
             status: 200,
@@ -78,19 +77,18 @@ class HomeController extends Controller {
 
         const { ctx } = this;
         const { hash } = ctx.request.query
-
-        let result = {
-            status: 200,
-            message: 'notExist'
-        }
-
-        if (hashMap[hash]) {
-            result = {
-                status: 200,
-                message: 'exist'
+        const map = {}
+        const filePath = path.resolve(this.config.baseDir, `app/public/${hash}`)
+        if (fs.existsSync(filePath)) {
+            const chunks = fs.readdirSync(filePath)
+            for (const chunk of chunks) {
+                map[chunk] = chunk
             }
-        } 
-        ctx.body = result
+        }
+        ctx.body = {
+            status: 200,
+            chunks: map
+        }
     }
 }
 
