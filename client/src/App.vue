@@ -219,7 +219,7 @@ export default Vue.extend({
                         currentFile.progress = 100
                         currentFile.uploading = false
                         currentFile.isUpload = true
-                        if (this.fileUploadSet.size === ++this.number) {
+                        if (this.fileUploadSet.size === ++this.number) {//判断所有文件是否上传
                             console.log(this.fileUploadSet.size)
                             this.fileUploadSet.clear()
                             resolve({
