@@ -40,11 +40,12 @@ interface CompData {
     fileList: any [];
     uploading: boolean;
     number: number;
-    fileUploadSet: Set<number>;
+    fileQueue: Array<any>;
+    chunksMap: Map<string, any>;
 }
 
 let worker
-
+let requestController
 export default Vue.extend({
 
   name: 'App',
@@ -59,7 +60,8 @@ export default Vue.extend({
         fileList: [],
         uploading: false,
         number: 0,
-        fileUploadSet: new Set()//当前正在上传的文件队列
+        fileQueue: [],//当前正在上传的文件队列,
+        chunksMap: new Map()//各个文件的切片hashmap
     }),
 
     methods: {
@@ -88,7 +90,7 @@ export default Vue.extend({
             this.uploading = true
             worker = new MyWorker()//启动wrker
             await this.upLoadFile()
-            worker = null
+            // worker = null
             this.uploading = false
         },
         
@@ -161,77 +163,111 @@ export default Vue.extend({
             })
         },
         confirmUplodeFile(fileList: FileInfo []): FileInfo [] {
-            return fileList.filter((file: FileInfo) => {
-                if (!file.isUpload) {
-                    this.fileUploadSet.add(file)//标记要上传的文件数
-                    return true
+            return fileList.filter((file: FileInfo) => !file.isUpload)
+        },
+        async upLoadFile(): Promise<any> {
+            return await this.sendFile()
+        },
+        sendRequest(currentFile: any, chunks: Array<any>): Promise<void> {
+           
+            return new Promise((resolve) => {
+                async function send() {
+                    const current = chunks.shift()
+                    if (!current) {
+                        resolve()
+                        return
+                    }
+                    const { form, chunk } = current
+                    Request().post('/upload', form,  {
+                        onUploadProgress: async (progressEvent) => {
+                            currentFile.progress += (progressEvent.loaded - chunk.loaded) / currentFile.size * 100
+                            console.log(progressEvent.loaded)
+                            console.log(chunk)
+                            chunk.loaded = progressEvent.loaded
+                            if (currentFile.progress >= 100) {
+                                currentFile.progress = 100
+                                currentFile.uploading = false
+                            }
+                        }
+                    }).then(() => {
+                        send()
+                    })
+                }
+                send()
+                while (requestController.isOneMore()) {
+                    send()
                 }
             })
         },
-        upLoadFile(): Promise<any> {
-            let index = 0
-            const callback = async (resolve) => {
-                const fileQueue = this.confirmUplodeFile(this.fileList)
-                while (fileQueue[index]) {
-                    const currentFile: FileInfo = fileQueue[index++]
-                    if (currentFile.isUpload) continue
-                    currentFile.uploading = true
-                    console.log('---------开始切片')
-                    const chunks = await this.fileSlice(currentFile, 0)
-                    console.log('---------计算哈希')
-                    const hash = await this.caculateHash(currentFile)
-                    // let rangeValue: number 
-                    console.log(chunks) 
-                    console.log(hash)
-                    const {chunks: map} = await Request().get('check', {
-                        params: { hash }
-                    })
-                    
-                    await Promise.all(
-                        chunks
-                        .filter((_, index: number) => !map[`${hash}-${index}`])
-                        .map((chunk: Chunk, index: number) => {
-                            console.log(`${hash}-${index}`)
-                            const form = new FormData()
-                            form.append('name', `${hash}-${index}`)
-                            form.append('type', currentFile.type)
-                            form.append('size', String(currentFile.size))
-                            form.append('hash', hash)
-                            form.append('file', chunk.chunk)
-                            
-                            return Request().post('/upload', form,  {
-                                onUploadProgress: async (progressEvent) => {
-                                    console.log(progressEvent)
-                                    // rangeValue = (progressEvent.total - currentFile.size) / currentFile.size * 100
-                                    currentFile.progress += (progressEvent.loaded - chunk.loaded) / currentFile.size * 100
-                                    chunk.loaded = progressEvent.loaded
-                                }
-                            })
-                        })
-                    ).then(async ({length}) => {
-                        if (length) {
-                            await Request().post('/merge', {
-                                name: currentFile.name,
-                                size: currentFile.size,
-                                hash
-                            })
-                        }
-                        currentFile.progress = 100
-                        currentFile.uploading = false
-                        currentFile.isUpload = true
-                        if (this.fileUploadSet.size === ++this.number) {//判断所有文件是否上传
-                            console.log(this.fileUploadSet.size)
-                            this.fileUploadSet.clear()
-                            resolve({
-                                url: [],
-                                name: currentFile.name,
-                                hash
-                            })
+
+        async sendFile(): Promise<any> {
+            //过滤已经上传过的文件
+            const fileQueue = this.confirmUplodeFile(this.fileList)
+           
+            console.log('-----还没上传过的文件', fileQueue)
+            const callback1 = async resolve => {
+                const file = fileQueue.shift()
+                if (!file) {
+                    resolve()
+                    return
+                }
+               
+                file.uploading = true
+                const chunks = await this.fileSlice(file, 0)
+                const hash = await this.caculateHash(file)
+                console.log(hash)
+                const { chunkMap }: { 
+                    chunkMap: object;
+                } = await Request().get('check', {
+                    params: { hash }
+                })
+                const newChunks = chunks
+                    .filter((_, index: number) => !chunkMap[`${hash}-${index}`])
+                    .map((chunk: Chunk, index: number) => {
+                        const form = new FormData()
+                        form.append('name', `${hash}-${index}`)
+                        form.append('type', file.type)
+                        form.append('size', String(file.size))
+                        form.append('hash', hash)
+                        form.append('file', chunk.chunk)
+                        console.log(chunk.chunk)
+                        return {
+                            form,
+                            index,
+                            chunk
                         }
                     })
+                resolve({ file, chunks: newChunks })
+            }
+            const handleFile = () => new Promise(callback1)
+
+            const goStart = async () => {
+               const result = await handleFile()
+                if (!result) {
+                    return 'done'
+                }
+                const { file, chunks } = result
+                this.sendRequest(file, chunks).then(() => {//开始发送分片
+                    file.uploading = false
+                    file.progress = 100
+                    goStart()
+                })
+                return 'done'
+            }
+            const max = fileQueue.length > 4 ? 4 : fileQueue.length
+            const more = 4 - max
+            requestController = this.requestController(more)
+            while (this.number < max) {
+                await goStart()
+                this.number++
+            }
+        },
+        requestController(more) {
+            return {
+                isOneMore() {
+                    return more-- > 0
                 }
             }
-            return new Promise(callback)
         }
     }
 })

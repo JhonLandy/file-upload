@@ -109,7 +109,7 @@ class HomeController extends Controller {
         }
         ctx.body = {
             status: 200,
-            chunks: map
+            chunkMap: map
         }
     }
 }
