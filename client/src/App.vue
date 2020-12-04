@@ -89,8 +89,9 @@ export default Vue.extend({
             if (this.uploading) return//正在上传，禁止操作。避免重复操作
             this.uploading = true
             worker = new MyWorker()//启动wrker
-            await this.upLoadFile()
-            // worker = null
+            const result = await this.upLoadFile()
+            console.log(result)
+            worker = null
             this.uploading = false
         },
         
@@ -165,8 +166,8 @@ export default Vue.extend({
         confirmUplodeFile(fileList: FileInfo []): FileInfo [] {
             return fileList.filter((file: FileInfo) => !file.isUpload)
         },
-        async upLoadFile(): Promise<any> {
-            return await this.sendFile()
+        upLoadFile(): Promise<any> {
+            return this.sendFile()
         },
         sendRequest(currentFile: any, chunks: Array<any>): Promise<void> {
            
@@ -174,26 +175,25 @@ export default Vue.extend({
                 async function send() {
                     const current = chunks.shift()
                     if (!current) {
-                        resolve()
                         return
                     }
                     const { form, chunk } = current
                     Request().post('/upload', form,  {
                         onUploadProgress: async (progressEvent) => {
                             currentFile.progress += (progressEvent.loaded - chunk.loaded) / currentFile.size * 100
-                            console.log(progressEvent.loaded)
-                            console.log(chunk)
                             chunk.loaded = progressEvent.loaded
-                            if (currentFile.progress >= 100) {
-                                currentFile.progress = 100
-                                currentFile.uploading = false
-                            }
                         }
                     }).then(() => {
-                        send()
+                        requestController.caculateMore()
+                        while (requestController.isOneMore()) {
+                            send()
+                        }
+                        if (currentFile.progress >= 100) {
+                            resolve()
+                        }
                     })
                 }
-                send()
+                requestController.caculateMore()
                 while (requestController.isOneMore()) {
                     send()
                 }
@@ -202,11 +202,10 @@ export default Vue.extend({
 
         async sendFile(): Promise<any> {
             //过滤已经上传过的文件
-            const fileQueue = this.confirmUplodeFile(this.fileList)
-           
-            console.log('-----还没上传过的文件', fileQueue)
+            // const fileQueue = this.confirmUplodeFile(this.fileList)
+            requestController = this.requestController()
             const callback1 = async resolve => {
-                const file = fileQueue.shift()
+                const file = requestController.nextFile()
                 if (!file) {
                     resolve()
                     return
@@ -230,7 +229,6 @@ export default Vue.extend({
                         form.append('size', String(file.size))
                         form.append('hash', hash)
                         form.append('file', chunk.chunk)
-                        console.log(chunk.chunk)
                         return {
                             form,
                             index,
@@ -247,25 +245,39 @@ export default Vue.extend({
                     return 'done'
                 }
                 const { file, chunks } = result
-                this.sendRequest(file, chunks).then(() => {//开始发送分片
+                return this.sendRequest(file, chunks).then(() => {//开始发送分片
                     file.uploading = false
                     file.progress = 100
+                    file.isUpload = true
                     goStart()
+                    return 'done'
                 })
-                return 'done'
             }
-            const max = fileQueue.length > 4 ? 4 : fileQueue.length
-            const more = 4 - max
-            requestController = this.requestController(more)
-            while (this.number < max) {
-                await goStart()
-                this.number++
+            const request = []
+            const max = requestController.max()
+            while (this.number++ < max) {
+                console.log(11)
+                request.push(goStart())
             }
+            console.log(request)
+            return Promise.all(request)
         },
-        requestController(more) {
+        requestController() {
+            const fileQueue = this.confirmUplodeFile(this.fileList)
+            let more = 0//初始请求一次
             return {
+                nextFile() {
+                    return fileQueue.shift()
+                },
                 isOneMore() {
                     return more-- > 0
+                },
+                caculateMore() {
+                    const max = fileQueue.length < 4 ? fileQueue.length : 4
+                    more += (4 - max) + 1//有空余请求，多请求几次
+                },
+                max() {
+                    return fileQueue.length > 4 ? 4 : fileQueue.length
                 }
             }
         }
