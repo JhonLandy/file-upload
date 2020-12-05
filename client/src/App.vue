@@ -98,7 +98,7 @@ class RequestController {
         }
         Promise.all(request).then(() => {
             this.number--
-            resolve()
+            resolve('done')
         })
     }
     caculateMore() {
@@ -237,7 +237,9 @@ export default Vue.extend({
         },
         async sendRequest(currentFile: FileInfo, chunks: Array<any>): Promise<void> {
             await requestController.upload(currentFile, chunks)
-            
+            currentFile.uploading = false
+            currentFile.progress = 100
+            currentFile.isUpload = true
         },
         async sendFile(): Promise<any> {
             const fileQueue = this.confirmUplodeFile(this.fileList)
@@ -246,7 +248,6 @@ export default Vue.extend({
             const request = []
             const max = requestController.max()
             while (this.number++ < max) {
-                console.log(1)
                 const result = await this.handleFile()
                 const [file, newChunks, hash] = result as Array<any>
                 //既要文件切片、哈希计算按顺序紧密执行，又不希望等上一个文件上传完毕，才开始上传下一个文件。因为代码放在一个函数执行，同时await，先当于等上一个文件上传完毕，才开始上传下一个文件
@@ -261,10 +262,6 @@ export default Vue.extend({
                 _file.uploading = true
                 await this.sendRequest(_file, _newChunks)
                 await this.mergeFile(_file.name, _hash, this.chunkSize)
-                console.log('文件上环结束')
-                _file.uploading = false
-                _file.progress = 100
-                _file.isUpload = true
                 return callback(...await this.handleFile())
             }
             return callback($file, $newChunks, $hash)
@@ -304,13 +301,10 @@ export default Vue.extend({
             return new Promise(callback)
         },
         mergeFile(name, hash, size): Promise<any> {
-            console.log(hash)
             return Request().post(`/merge`, {
-                data: {
-                    name,
-                    size, 
-                    hash
-                }
+                name,
+                size, 
+                hash
             })
         }
     }
