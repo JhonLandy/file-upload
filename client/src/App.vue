@@ -12,7 +12,6 @@ import MyWorker from 'worker-loader!./web.worker.js';
 import FileList from './components/FileList';
 import Vue from 'vue';
 import Request from './http/request';
-import { Interface } from 'readline';
 
 
 interface FileInfo {
@@ -44,7 +43,7 @@ interface CompData {
     chunksMap: Map<string, any>;
 }
 
-let worker
+let worker: MyWorker
 let requestController
 class RequestController {
     more = 0;//第一次上传的请求书
@@ -70,7 +69,7 @@ class RequestController {
         return new Promise<any>(resolve => {
              const current = chunks.shift()
             if (!current) {
-                resolve('done')
+                resolve([])
                 return
             }
             const { form, chunk } = current
@@ -195,7 +194,7 @@ export default Vue.extend({
             //参照散列的思想，不进行文件的全量hash计算，减少hash的计算量
             const chunks: (Blob []) = []
             const file: File = filer.file
-            const offset =  1024  * 2
+            const offset =  1024  * 2 * 1024
 
             let start = 0
             let mid = start + offset / 2
@@ -235,11 +234,12 @@ export default Vue.extend({
         upLoadFile(): Promise<any> {
             return this.sendFile()
         },
-        async sendRequest(currentFile: FileInfo, chunks: Array<any>): Promise<void> {
+        async sendRequest(currentFile: FileInfo, chunks: Array<any>): Promise<string> {
             await requestController.upload(currentFile, chunks)
             currentFile.uploading = false
             currentFile.progress = 100
             currentFile.isUpload = true
+            return 'done'
         },
         async sendFile(): Promise<any> {
             const fileQueue = this.confirmUplodeFile(this.fileList)
@@ -266,12 +266,12 @@ export default Vue.extend({
             }
             return callback($file, $newChunks, $hash)
         },
-        handleFile(): Promise<any> {
+        handleFile(): Promise<string | Array<any> >{
             const callback = async resolve => {
                 const file: FileInfo = requestController.nextFile()
                 if (!file) {
-                    resolve({})
-                    return 'done'
+                    resolve([])
+                    return
                 }
                 const chunks = await this.fileSlice(file, 0)
                 const hash = await this.caculateHash(file)
@@ -300,7 +300,7 @@ export default Vue.extend({
             }
             return new Promise(callback)
         },
-        mergeFile(name, hash, size): Promise<any> {
+        mergeFile(name: string, hash: string, size: string): Promise<any> {
             return Request().post(`/merge`, {
                 name,
                 size, 

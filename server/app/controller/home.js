@@ -72,11 +72,10 @@ class HomeController extends Controller {
                     readStream.pipe(writerStream)
                 }
                 pipeStream(chunkName, fs.createWriteStream(fileUrl, {
-                    start: index * size,
-                    end: (index + 1) * size
+                    start: index * size
                 }))
         })))
-            
+        console.log(chunks)
         ctx.body = {
             url: fileUrl,
             status: 200,
