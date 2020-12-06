@@ -1,10 +1,10 @@
 <template>
-  <div id="app" vf>
-    <input id="selectFile" type="file" @change="handleChange" multiple>
-    <el-button type="primary" size="small" @click="doTigger" :disabled="uploading">选择文件</el-button>
-    <el-button type="success" size="small" @click="doUpload" :loading="uploading">{{ uploading ? 'upload...': '上传'}}</el-button>
-    <FileList :fileList="fileList" :isUplod="uploading" />
-  </div>
+    <div id="app" vf>
+        <input id="selectFile" type="file" @change="handleChange" multiple>
+        <el-button type="primary" size="small" @click="doTigger" :disabled="uploading">选择文件</el-button>
+        <el-button type="success" size="small" @click="doUpload" :loading="uploading">{{ uploading ? 'upload...': '上传'}}</el-button>
+        <FileList :fileList="fileList" :isUplod="uploading" />
+    </div>
 </template>
 <script lang="ts">
 
@@ -165,6 +165,7 @@ export default Vue.extend({
             worker = new MyWorker()//启动wrker
             const result = await this.upLoadFile()
             console.log(result)
+            worker.terminate()
             worker = null
             this.uploading = false
         },
