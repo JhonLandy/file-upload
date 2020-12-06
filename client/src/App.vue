@@ -175,7 +175,7 @@ export default Vue.extend({
             const end = start + chunkSize
             const file = filer.file
             const chunk = file.slice(start, end)
-
+            console.log(chunk, chunk.size)
             return new Promise(resolve => {
                 requestIdleCallback(async () => {
                     if (chunk.size === 0) {

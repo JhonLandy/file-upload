@@ -10,7 +10,7 @@ class HomeController extends Controller {
     async fileUplod() {
 
         const { ctx } = this;
-        const { name, hash } = ctx.request.body
+        const { name, hash, size } = ctx.request.body
         const files = ctx.request.files
 
         let result = {
@@ -23,11 +23,10 @@ class HomeController extends Controller {
         if (!fs.existsSync(filepath)) {
             fs.mkdirSync(filepath);
         }
-
+        console.log(files[0].filepath)
         const readStream = fs.createReadStream(files[0].filepath)
         const writeStream = fs.createWriteStream(`${filepath}/${name}`)
         readStream.pipe(writeStream)
-
         await new Promise(resolve => {
             readStream.on('end', () => {
                 console.log(`${name} - ${files[0].filename}-上传成功！`)
@@ -38,7 +37,6 @@ class HomeController extends Controller {
                 }
                 resolve()
             })
-            readStream.pipe(writeStream)
         })
         ctx.body = result
     }
@@ -64,6 +62,7 @@ class HomeController extends Controller {
         await Promise.all(chunks
             .sort((a, b) => a.split('-')[1] - b.split('-')[1])
             .map((chunkName, index) => new Promise(resolve => {
+                console.log(chunkName, index)
                 const pipeStream = (name, writerStream) => {
                     const readStream = fs.createReadStream(path.resolve(filePath, name))
                     readStream.on('end', function() {
@@ -72,10 +71,11 @@ class HomeController extends Controller {
                     readStream.pipe(writerStream)
                 }
                 pipeStream(chunkName, fs.createWriteStream(fileUrl, {
-                    start: index * size
+                    start: index * size,
+                    end: (index + 1) * size
                 }))
         })))
-        console.log(chunks)
+            
         ctx.body = {
             url: fileUrl,
             status: 200,
