@@ -29,6 +29,7 @@ interface Chunk {
     loaded: number;//已上传的大小
     size: number;//切片大小
     chunk: Blob;//分片文件对象
+    error: number;//分片上传报错次数，超过三次不再重传
 }
 
 interface CompData {
@@ -49,12 +50,13 @@ class RequestController {
     more = 0;//第一次上传的请求书
     MaxR = 0;
     file = [];
-    number = 0;
+    number = 0;//当前正在上传的文件个数
+    shouldCaculate = true //判断是否第一次上传，第一次上传不计算
     constructor(file = [], MaxR = 4) {
         this.file = file
-        this.number = file.length
         this.MaxR = MaxR
-        this.more = this.file.length > this.MaxR ? this.MaxR : this.file.length
+        this.shouldCaculate = false
+        this.more = this.file.length > this.MaxR ? 0 : this.MaxR - this.file.length
     }
     nextFile() {
         return this.file.shift()
@@ -72,21 +74,35 @@ class RequestController {
                 resolve([])
                 return
             }
+            this.number++
             const { form, chunk } = current
             Request().post('/upload', form,  {
                 onUploadProgress: async (progressEvent) => {
                     currentFile.progress += (progressEvent.loaded - chunk.loaded) / currentFile.size * 100
                     chunk.loaded = progressEvent.loaded
                 }
-            }).then(() => {
+            })
+            .then(() => {
+                this.number--
+            })
+            .catch(() => {
+                current.chunk.error++
+                alert('错误重传')
+                if (current.chunk.error < 3) {
+                    chunks.unshift(current)
+                }
+            }).finally(() => {
                 this.actions(currentFile, chunks, resolve)
             })
         })
     }
     upload(currentFile, chunks) {
-        return new Promise((resolve) => {
-            this.actions(currentFile, chunks, resolve)
-        })
+        this.number++
+        const uploadHandler = async resolve => {
+            await this.actions(currentFile, chunks, resolve)
+            this.number--
+        }
+        return new Promise(uploadHandler)
     }
     actions(currentFile, chunks, resolve) {
         const request = []
@@ -95,13 +111,13 @@ class RequestController {
         while (this.isOneMore()) {
             request.push(this.send(currentFile, chunks))
         }
-        Promise.all(request).then(() => {
-            this.number--
+        return Promise.all(request).then(() => {
             resolve('done')
         })
     }
     caculateMore() {
-        this.more = this.number < this.MaxR  ? this.MaxR - this.number : this.more
+        this.more = this.shouldCaculate ? (this.number < this.MaxR  ? this.MaxR - this.number : this.more) : this.more
+        this.shouldCaculate = true
     }
 }
 export default Vue.extend({
@@ -113,7 +129,7 @@ export default Vue.extend({
     data: (): CompData => ({
         filers : null,
         chunks: [],
-        chunkSize: 20 * 1024 * 1024,//字节1kb=1024字节
+        chunkSize: 20 * 1024 * 600,//字节1kb=1024字节
         uploadQueue: [],
         fileList: [],
         uploading: false,
@@ -175,7 +191,6 @@ export default Vue.extend({
             const end = start + chunkSize
             const file = filer.file
             const chunk = file.slice(start, end)
-            console.log(chunk, chunk.size)
             return new Promise(resolve => {
                 requestIdleCallback(async () => {
                     if (chunk.size === 0) {
@@ -184,7 +199,8 @@ export default Vue.extend({
                         resolve([{
                             loaded: 0,
                             chunk,
-                            size: Number(chunk.size)
+                            size: Number(chunk.size),
+                            error: 0
                         } as Chunk, ...await this.fileSlice(filer, end)])
                     } 
                 })
@@ -235,11 +251,7 @@ export default Vue.extend({
             return this.sendFile()
         },
         async sendRequest(currentFile: FileInfo, chunks: Array<any>): Promise<string> {
-            await requestController.upload(currentFile, chunks)
-            currentFile.uploading = false
-            currentFile.progress = 100
-            currentFile.isUpload = true
-            return 'done'
+            return await requestController.upload(currentFile, chunks)
         },
         async sendFile(): Promise<any> {
             const fileQueue = this.confirmUplodeFile(this.fileList)
@@ -261,7 +273,11 @@ export default Vue.extend({
                 if (!_file) return 'done'
                 _file.uploading = true
                 await this.sendRequest(_file, _newChunks)
+                //做个是否已存在文件判断，存在，则不用合并文件
                 await this.mergeFile(_file.name, _hash, this.chunkSize)
+                _file.uploading = false
+                _file.progress = 100
+                _file.isUpload = true
                 return callback(...await this.handleFile())
             }
             return callback($file, $newChunks, $hash)
@@ -274,6 +290,7 @@ export default Vue.extend({
                     return
                 }
                 const chunks = await this.fileSlice(file, 0)
+                console.log(chunks)
                 const hash = await this.caculateHash(file)
                 console.log(hash)
                 const { chunkMap }: { 
