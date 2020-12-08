@@ -34,14 +34,16 @@ interface Chunk {
 
 interface CompData {
     filers: FileInfo | null;
-    chunks: Chunk [];
-    chunkSize: number;
-    uploadQueue: Promise<any> [];
-    fileList: any [];
+    chunks: Chunk [];//切片
+    chunkSize: number;//切片大小
+    // uploadQueue: Promise<any> [];
+    fileList: any [];//文件列表
     uploading: boolean;
-    number: number;
-    fileQueue: Array<any>;
-    chunksMap: Map<string, any>;
+    number: number;//上传文件数
+    fileQueue: Array<any>;//上传队列
+    // chunksMap: Map<string, any>;
+    format: Array<string>;//允许上传的文件格式
+    fileBinaryStringSet: Set<string>;//16进制的文件格式
 }
 
 let worker: MyWorker
@@ -120,6 +122,18 @@ class RequestController {
         this.shouldCaculate = true
     }
 }
+
+const formatMap = {
+    'jpg': 'FFD8FFE00104A46',
+    'jpeg': 'FFD8FFE00104A46',
+    'png': '89504E47DA1AA',
+    'zip': '504B34A000',
+    'doc': 'D0CF11E0A1B11AE1',
+    'docx': '504B3414060',
+    'exe': '4D5A7801000',
+    'md': '2D2D2DDAE5898D',
+    'js': '636C617373204172',
+}
 export default Vue.extend({
 
   name: 'App',
@@ -130,13 +144,21 @@ export default Vue.extend({
         filers : null,
         chunks: [],
         chunkSize: 20 * 1024 * 600,//字节1kb=1024字节
-        uploadQueue: [],
+        // uploadQueue: [],
         fileList: [],
         uploading: false,
         number: 0,
         fileQueue: [],//当前正在上传的文件队列,
-        chunksMap: new Map()//各个文件的切片hashmap
+        // chunksMap: new Map(),//各个文件的切片hashmap
+        format: ['gif', 'jpg', 'jpeg', 'zip', 'docx'],
+        fileBinaryStringSet: new Set()
     }),
+
+    created() {
+        for (const key of this.format) {
+            this.fileBinaryStringSet.add(formatMap[key])
+        }
+    },
 
     methods: {
         handleChange(e: any): void {
@@ -160,14 +182,22 @@ export default Vue.extend({
         },
 
         async doUpload() {
+            
             if (this.uploading) return//正在上传，禁止操作。避免重复操作
             this.uploading = true
             worker = new MyWorker()//启动wrker
-            const result = await this.upLoadFile()
-            console.log(result)
-            worker.terminate()
-            worker = null
-            this.uploading = false
+            this.upLoadFile()
+            .then(result => {
+                console.log('上传结果' + result)
+            })
+            .catch(e => {
+                this.$message.error(e)
+            })
+            .finally(() => {
+                worker.terminate()
+                worker = null
+                this.uploading = false
+            })
         },
         
         doTigger() {
@@ -175,16 +205,16 @@ export default Vue.extend({
             if (selectFile)  (selectFile as HTMLElement).click()
         },
 
-        getSuffix(filename: string): {
-            name: string;
-            suffix: string;
-        } {
+        getSuffix(filename: string): Array<string> {
             if (filename) {
-            const [name, suffix] = filename.split('.')
-            return { name, suffix }
+                const arr = filename.split('.')
+                const ext: string = arr[arr.length - 1]
+                arr.length = arr.length - 1
+                const name: string = arr.join('')
+                return [name, ext]
             } 
             this.$message.error('文件不存在')
-            return { name: '', suffix: '' }
+            return []
         },
 
         fileSlice(filer: FileInfo, start: number): Promise<Chunk []> {
@@ -239,14 +269,7 @@ export default Vue.extend({
             })
         },
         confirmUplodeFile(fileList: FileInfo []): FileInfo [] {
-            return fileList.filter((file: FileInfo) => {
-                if (!file.isUpload) {
-                    file.uploading = true
-                    return true
-                } else {
-                    return false
-                }
-            })
+            return fileList.filter((file: FileInfo) => !file.isUpload)
         },
         upLoadFile(): Promise<any> {
             return this.sendFile()
@@ -256,6 +279,11 @@ export default Vue.extend({
         },
         async sendFile(): Promise<any> {
             const fileQueue = this.confirmUplodeFile(this.fileList)
+            const isAllow = await this.verifyFile(fileQueue)
+            console.log('文件是否通过格式检查', isAllow)
+            if (!isAllow) {
+                throw '文件格式不正确';
+            }
             requestController = new RequestController(fileQueue)
            
             const request = []
@@ -273,13 +301,13 @@ export default Vue.extend({
             const callback = async (_file: FileInfo, _newChunks: any, _hash: string) => {
                 if (!_file) return 'done'
                 _file.uploading = true
-                await this.sendRequest(_file, _newChunks)
+                const result = await this.sendRequest(_file, _newChunks)
+                if (result.length === 0) return 'done'//表示已经上传过或没有下一个文件
                 //做个是否已存在文件判断，存在，则不用合并文件
                 await this.mergeFile(_file.name, _hash, this.chunkSize)
                 _file.uploading = false
                 _file.progress = 100
                 _file.isUpload = true
-                return callback(...await this.handleFile())
             }
             return callback($file, $newChunks, $hash)
         },
@@ -294,15 +322,25 @@ export default Vue.extend({
                 console.log(chunks)
                 const hash = await this.caculateHash(file)
                 console.log(hash)
-                const { chunkMap }: { 
+                const [name, ext] = this.getSuffix(file.name)
+                console.log(name, ext)
+                const { uploaded, chunkMap }: { 
+                    uploaded: boolean;
                     chunkMap: object;
                 } = await Request().get('check', {
-                    params: { hash }
+                    params: { hash, ext }
                 })
+                if (uploaded) {//判断是否上传过
+                    resolve([])
+                    file.isUpload = true
+                    file.progress = 100
+                    return 
+                } 
                 const newChunks = chunks
                     .filter((_, index: number) => !chunkMap[`${hash}-${index}`])
                     .map((chunk: Chunk, index: number) => {
                         const form = new FormData()
+                       
                         form.append('name', `${hash}-${index}`)
                         form.append('type', file.type)
                         form.append('size', String(file.size))
@@ -318,12 +356,33 @@ export default Vue.extend({
             }
             return new Promise(callback)
         },
-        mergeFile(name: string, hash: string, size: string): Promise<any> {
+        mergeFile(filename: string, hash: string, size: string): Promise<any> {
+            const [name, ext] = this.getSuffix(filename)
             return Request().post(`/merge`, {
-                name,
-                size, 
-                hash
+                hash,
+                ext,
+                size 
             })
+        },
+        async allowFile(file) {
+            const res = await this.readFile(file)
+            console.log(res)
+            return this.fileBinaryStringSet.has(res)
+        },
+        readFile({ file }) {
+            return new Promise(resolve => {
+                const reader = new FileReader()
+                reader.onload = function() {
+                    const result = (reader.result as ArrayBuffer)//读取数据
+                    const arr = [...new Uint8Array(result).slice(0, 8)]//获取一个8位无符号整型数组
+                    resolve(arr.map(v =>  v.toString(16).toUpperCase()).join(''))//获取文件格式十六进制
+                }
+                reader.readAsArrayBuffer(file)
+            })
+        },
+        async verifyFile(fileList) {
+            const results = await Promise.all(fileList.map(file => this.allowFile(file)))
+            return results.every(isPass => isPass)
         }
     }
 })
