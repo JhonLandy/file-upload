@@ -57,7 +57,6 @@ class RequestController {
     constructor(file = [], MaxR = 4) {
         this.file = file
         this.MaxR = MaxR
-        this.shouldCaculate = false
         // this.more = this.file.length > this.MaxR ? 0 : this.MaxR - this.file.length
     }
     nextFile() {
@@ -76,6 +75,10 @@ class RequestController {
         this.number--
     }
     send(currentFile, chunks, queue, resolve) {
+        if (this.rNumber >= this.MaxR) {
+            return Promise.resolve('请求过多，不接受请求')
+        }
+
         const current = chunks.shift()
         if (!current) {
             resolve(queue)
@@ -113,12 +116,13 @@ class RequestController {
     actions(currentFile, chunks, queue = [], resolve) {
         queue.push(this.send(currentFile, chunks, queue, resolve))
         this.caculateMore()
-        while (this.isOneMore() && this.rNumber < this.MaxR) {
+        while (this.isOneMore()) {
             queue.push(this.send(currentFile, chunks, queue, resolve))
         }
     }
     caculateMore() {
-        this.more = this.file.length < this.MaxR  ? this.MaxR - this.number : 0
+        const fileNumber = this.file.length + 1//表示剩余文件数,用剩余文件数求还能传多少个请求，本身会上传一个，所以要this.file.length + 1 再this.MaxR - fileNumber
+        this.more = fileNumber < this.MaxR  ? this.MaxR - fileNumber : 0
     }
 }
 let workerController 
