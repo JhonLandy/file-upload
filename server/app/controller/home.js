@@ -59,14 +59,15 @@ class HomeController extends Controller {
                 }
             }) 
         })
+
+        
         await Promise.all(chunks
             .sort((a, b) => a.split('-')[1] - b.split('-')[1])
-            .map((chunkName, index) => new Promise(resolve => {
-                console.log(chunkName, index)
+            .map((chunkName, index) => new Promise((resolve) => {
                 const pipeStream = (name, writerStream) => {
                     const readStream = fs.createReadStream(path.resolve(filePath, name))
-                    readStream.on('end', function() {
-                        resolve()
+                    readStream.on('end', () => {
+                        resolve(this.removeDocument(filePath))
                     })
                     readStream.pipe(writerStream)
                 }
@@ -92,9 +93,7 @@ class HomeController extends Controller {
         function isUploaded() {
             return new Promise((resolve) => {
                 fs.access(filePath, fs.constants.F_OK, (err) => {
-                    console.log(err)
-                    const uploaded = err ? false : true
-                    resolve(uploaded)
+                    resolve(err ? false : true)
                 });
             })
         }
@@ -121,7 +120,6 @@ class HomeController extends Controller {
             })
         }
         const uploaded = await isUploaded()
-        console.log(uploaded)
         let chunkMap = {}
         if (!uploaded) {
             const result =await getChunks()
@@ -131,6 +129,34 @@ class HomeController extends Controller {
             uploaded,
             chunkMap
         }
+    }
+
+    removeDocument(path) {
+        return new Promise(resolve => {
+            fs.readdir(path, (error, chunkNames) => {
+                if (error) {
+                    reject(error)
+                } else {
+                    resolve(chunkNames)
+                }
+            }) 
+        })
+        .then(chunkNames => {
+            return Promise.all(chunkNames.map(chunkName => {
+                return new Promise((resolve) => {
+                    fs.unlink(`${path}/${chunkName}`, () => {
+                        resolve()
+                    })
+                })
+            }))
+        })
+        .then(() => {
+            return new Promise(reoslve => {
+                fs.rmdir(path, {}, () => {
+                    reoslve()
+                })
+            })
+        })
     }
 }
 

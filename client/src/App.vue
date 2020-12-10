@@ -13,7 +13,6 @@ import FileList from './components/FileList';
 import Vue from 'vue';
 import Request from './http/request';
 
-
 interface FileInfo {
     name: string;//文件名
     type: string;//文件MINE类型
@@ -129,6 +128,12 @@ class WorkerController {
     on = false
     constructor(MyWorker) {
         this.worker = new MyWorker()
+        this.worker.onerror= function (error) {
+            console.log('error', error)
+        }
+        this.worker.onmessageerror= function (error) {
+            console.log('error', error)
+        }
     }
     push(handler) {
         this.queue.push(handler)
@@ -212,8 +217,12 @@ export default Vue.extend({
             .then(result => {
                 console.log('上传结果' + result)
             })
-            .catch(e => {
-                this.$message.error(e)
+            .catch(error => {
+                if (typeof error === 'string') {
+                    this.$message.error(error)
+                } else {
+                    console.error(error)
+                }
             })
             .finally(() => {
                 workerController.compeleted()
@@ -259,7 +268,7 @@ export default Vue.extend({
                 })
             })
         },
-        caculateHash(filer: FileInfo): Promise<string> {
+        async caculateHash(filer: FileInfo): Promise<string> {
             const chunks: (Blob []) = []
             const file: File = filer.file
             if (filer.size < 1024 * 1024 * 2) {
@@ -285,23 +294,38 @@ export default Vue.extend({
                     end = start + offset
                 }
             }
-            return new Promise(resovle => {
-                console.log(filer.name)
-                workerController.push(worker => {
-                    worker.postMessage(new Blob(chunks))//发送切片计算hash
-                    worker.onmessage = (event: any) => {
-                        const {data: hash} = event
-                        console.log(hash)
-                        resovle(hash)
-                    }
+            let errorId 
+            return Promise.race([new Promise((resovle, reject) => {
+                    workerController.push(worker => {
+                        worker.onerror = () => {
+                            reject('There is an error with your worker!')
+                        }   
+                        worker.postMessage(new Blob(chunks))//发送切片计算hash
+                        worker.onmessage = (event: any) => {
+                            const {data: hash} = event
+                            resovle(hash)
+                        }
+                    })
+                }),
+                new Promise((resovle, reject) => {
+                    errorId = setTimeout(() => {
+                        filer.stop = true
+                        reject('计算hash超时') 
+                    }, 30 * 1000);
+                })])
+                .then(hash => {
+                    clearTimeout(errorId)
+                    return hash
+                }, error => {
+                    throw error
                 })
-            })
+               
         },
         confirmUplodeFile(fileList: FileInfo []): FileInfo [] {
             return fileList.filter((file: FileInfo) => !file.isUpload)
         },
-        upLoadFile(): Promise<any> {
-            return this.sendFile()
+        async upLoadFile(): Promise<any> {
+            return await this.sendFile()
         },
         sendRequest(currentFile: FileInfo, chunks: Array<any>): Promise<string> {
             return requestController.upload(currentFile, chunks)
@@ -310,36 +334,39 @@ export default Vue.extend({
             const fileQueue = this.confirmUplodeFile(this.fileList)
             const isAllow = await this.verifyFile(fileQueue)
             console.log('文件是否通过格式检查', isAllow)
-           
             requestController = new RequestController(fileQueue, 4)
             const max = requestController.max()
-
-            const request = []
+            const request: Array<any> = []
             const goStart = async () => {
                 requestController.begin()
                 const result = await this.handleFile()
-                const [file, newChunks, hash] = result as Array<any>
-                if (file === 'empty') {
+                console.log(result)
+                const [file, newChunks, hash, status] = result
+                if (status === 'empty') {//没有下一个文件或者chunks已经全部上传过
                     return 'done'
                 }
-                const work = this.startRequestWork(file, newChunks, hash, goStart)
+                console.log(file.name, newChunks)
+                const work = this.startRequestWork(file, newChunks, hash, status, goStart)
                 //rNumber + 1 表示下一个文件是否还有位置处理
                 if (requestController.number < max) {
                     request.push(goStart())
                 }
                 //既要文件切片、哈希计算按顺序紧密执行，又不希望等上一个文件上传完毕，才开始上传下一个文件。因为代码放在一个函数执行，同时await，先当于等上一个文件上传完毕，才开始上传下一个文件
                 //while代码块，这里分开做处理，先handleFile，再push一个请求
-                return await work
+                return work
             }
             request.push(goStart())
             return Promise.all(request)
         },
-        async startRequestWork($file: FileInfo, $newChunks: any, $hash: string, fn: () => Promise<string>) {
-            const callback = async (_file: (FileInfo | string), _newChunks: any, _hash: string) => {
-                if (_file === 'exist') {
+        async startRequestWork($file: FileInfo, $newChunks: any, $hash: string, $status: string, fn: () => Promise<string>) {
+            const callback = async (_file: (FileInfo | string), _newChunks: any, _hash: string, _status: string) => {
+                _file.uploading = true
+                if (_status === 'exist') {//文件上传过
+                    _file.uploading = false
+                    _file.progress = 100
+                    _file.isUpload = true
                     return fn()
                 }
-                _file.uploading = true
                 await this.sendRequest(_file, _newChunks)
                 //做个是否已存在文件判断，存在，则不用合并文件
                 await this.mergeFile(_file.name, _hash, this.chunkSize)
@@ -348,39 +375,34 @@ export default Vue.extend({
                 _file.isUpload = true
                 return fn()
             }
-            return callback($file, $newChunks, $hash)
+            return callback($file, $newChunks, $hash, $status)
         },
         handleFile(): Promise<string | Array<any> >{
-            const callback = async resolve => {
+            const callback = async () => {
                 const file: FileInfo = requestController.nextFile()
-                console.log(file)
                 if (!file) {
-                    resolve(['empty'])
-                    return
+                    return [file, null, null, 'empty']
                 }
                 const chunks = await this.fileSlice(file, 0)
-                console.log(chunks)
                 const hash = await this.caculateHash(file)
-                console.log(hash)
+                console.log(file.name, hash)
                 const [name, ext] = this.getSuffix(file.name)
-                console.log(name, ext)
                 const { uploaded, chunkMap }: { 
                     uploaded: boolean;
                     chunkMap: object;
                 } = await Request().get('check', {
                     params: { hash, ext }
                 })
+                console.log(uploaded, chunkMap, file.name)
                 if (uploaded) {//判断是否上传过
-                    resolve(['exist'])
                     file.isUpload = true
                     file.progress = 100
-                    return 
+                    return [file, null, null, 'exist']
                 } 
                 const newChunks = chunks
                     .filter((_, index: number) => !chunkMap[`${hash}-${index}`])
                     .map((chunk: Chunk, index: number) => {
                         const form = new FormData()
-                       
                         form.append('name', `${hash}-${index}`)
                         form.append('type', file.type)
                         form.append('size', String(file.size))
@@ -392,9 +414,9 @@ export default Vue.extend({
                             chunk
                         }
                     })
-                resolve([file, newChunks, hash])
+                return [file, newChunks, hash, 'upload']
             }
-            return new Promise(callback)
+            return Promise.resolve(callback())
         },
         mergeFile(filename: string, hash: string, size: string): Promise<any> {
             const [name, ext] = this.getSuffix(filename)
