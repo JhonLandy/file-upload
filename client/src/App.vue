@@ -53,12 +53,13 @@ class RequestController {
     MaxR = 0;
     file = [];
     number = 0;//当前正在上传的文件个数
-    shouldCaculate = true //判断是否第一次上传，第一次上传不计算
+    rNumber = 0;//当前请求数
+    // shouldCaculate = true //判断是否第一次上传，第一次上传不计算
     constructor(file = [], MaxR = 4) {
         this.file = file
         this.MaxR = MaxR
         this.shouldCaculate = false
-        this.more = this.file.length > this.MaxR ? 0 : this.MaxR - this.file.length
+        // this.more = this.file.length > this.MaxR ? 0 : this.MaxR - this.file.length
     }
     nextFile() {
         return this.file.shift()
@@ -69,53 +70,82 @@ class RequestController {
     max() {
         return this.file.length > this.MaxR ? this.MaxR : this.file.length
     }
-    send(currentFile, chunks) {
-        return new Promise<any>(resolve => {
-            const current = chunks.shift()
-            if (!current) {
-                resolve([])
-                return
+    begin() {
+        return ++this.number
+    }
+    end() {
+        this.number--
+    }
+    send(currentFile, chunks, queue, resolve) {
+        const current = chunks.shift()
+        if (!current) {
+            resolve(queue)
+            return
+        }
+        const { form, chunk } = current
+        this.rNumber++
+        return Request().post('/upload', form,  {
+            onUploadProgress: async (progressEvent) => {
+                currentFile.progress += (progressEvent.loaded - chunk.loaded) / currentFile.size * 100
+                chunk.loaded = progressEvent.loaded
             }
-            const { form, chunk } = current
-            Request().post('/upload', form,  {
-                onUploadProgress: async (progressEvent) => {
-                    currentFile.progress += (progressEvent.loaded - chunk.loaded) / currentFile.size * 100
-                    chunk.loaded = progressEvent.loaded
-                }
-            })
-            .catch(() => {
-                current.chunk.error++
-                alert('错误重传')
-                if (current.chunk.error < 3) {
-                    chunks.unshift(current)
-                }
-            }).finally(() => {
-                this.actions(currentFile, chunks, resolve)
-            })
+        })
+        .then(() => {
+            this.rNumber--
+        })
+        .catch(() => {
+            current.chunk.error++
+            alert('错误重传')
+            if (current.chunk.error < 3) {
+                chunks.unshift(current)
+            }
+        })
+        .finally(() => {
+            this.actions(currentFile, chunks, queue, resolve)
         })
     }
     upload(currentFile, chunks) {
-        this.number++
-        const uploadHandler = async resolve => {
-            await this.actions(currentFile, chunks, resolve)
-            this.number--
-        }
-        return new Promise(uploadHandler)
-    }
-    actions(currentFile, chunks, resolve) {
-        const request = []
-        request.push(this.send(currentFile, chunks))
-        this.caculateMore()
-        while (this.isOneMore()) {
-            request.push(this.send(currentFile, chunks))
-        }
-        return Promise.all(request).then(() => {
-            resolve('done')
+        return new Promise(resolve => {
+            this.actions(currentFile, chunks, [], resolve)
+        }).then(requestQueue => {
+            return Promise.all(requestQueue).then(() => this.end())
         })
     }
+    actions(currentFile, chunks, queue = [], resolve) {
+        queue.push(this.send(currentFile, chunks, queue, resolve))
+        this.caculateMore()
+        while (this.isOneMore() && this.rNumber < this.MaxR) {
+            queue.push(this.send(currentFile, chunks, queue, resolve))
+        }
+    }
     caculateMore() {
-        this.more = this.shouldCaculate ? (this.number < this.MaxR  ? this.MaxR - this.number : this.more) : this.more
-        this.shouldCaculate = true
+        this.more = this.file.length < this.MaxR  ? this.MaxR - this.number : 0
+    }
+}
+let workerController 
+class WorkerController {
+    queue = [];
+    worker = null;
+    on = false
+    constructor(MyWorker) {
+        this.worker = new MyWorker()
+    }
+    push(handler) {
+        this.queue.push(handler)
+        if (!this.on) {
+            this.on = true
+            this.flushWorker()
+        }
+    }
+    flushWorker() {
+        while (this.queue.length > 0) {
+            const handler = this.queue.shift()
+            handler(this.worker)
+        }
+        this.on = false
+    }
+    compeleted() {
+        this.worker.terminate()
     }
 }
 
@@ -142,7 +172,7 @@ export default Vue.extend({
         number: 0,
         fileQueue: [],//当前正在上传的文件队列,
         // chunksMap: new Map(),//各个文件的切片hashmap
-        format: ['gif', 'jpg', 'jpeg', 'png', 'zip'],
+        // format: ['gif', 'jpg', 'jpeg', 'png', 'zip'],
         fileBinaryStringSet: new Set()
     }),
 
@@ -177,7 +207,7 @@ export default Vue.extend({
             
             if (this.uploading) return//正在上传，禁止操作。避免重复操作
             this.uploading = true
-            worker = new MyWorker()//启动wrker
+            workerController = new WorkerController(MyWorker)
             this.upLoadFile()
             .then(result => {
                 console.log('上传结果' + result)
@@ -186,8 +216,8 @@ export default Vue.extend({
                 this.$message.error(e)
             })
             .finally(() => {
-                worker.terminate()
-                worker = null
+                workerController.compeleted()
+                workerController = null
                 this.uploading = false
             })
         },
@@ -255,13 +285,16 @@ export default Vue.extend({
                     end = start + offset
                 }
             }
-
             return new Promise(resovle => {
-                worker.postMessage(new Blob(chunks))//发送切片计算hash
-                worker.onmessage = (event: any) => {
-                    const {data: hash} = event
-                    resovle(hash)
-                }
+                console.log(filer.name)
+                workerController.push(worker => {
+                    worker.postMessage(new Blob(chunks))//发送切片计算hash
+                    worker.onmessage = (event: any) => {
+                        const {data: hash} = event
+                        console.log(hash)
+                        resovle(hash)
+                    }
+                })
             })
         },
         confirmUplodeFile(fileList: FileInfo []): FileInfo [] {
@@ -270,8 +303,8 @@ export default Vue.extend({
         upLoadFile(): Promise<any> {
             return this.sendFile()
         },
-        async sendRequest(currentFile: FileInfo, chunks: Array<any>): Promise<string> {
-            return await requestController.upload(currentFile, chunks)
+        sendRequest(currentFile: FileInfo, chunks: Array<any>): Promise<string> {
+            return requestController.upload(currentFile, chunks)
         },
         async sendFile(): Promise<any> {
             const fileQueue = this.confirmUplodeFile(this.fileList)
@@ -283,26 +316,31 @@ export default Vue.extend({
 
             const request = []
             const goStart = async () => {
+                requestController.begin()
                 const result = await this.handleFile()
                 const [file, newChunks, hash] = result as Array<any>
-                if (!file) return 'done'
-                //max - 1 是为了防止还没上传（未开始请求），多传一个文件
-                if (requestController.number < max - 1) {
+                if (file === 'empty') {
+                    return 'done'
+                }
+                const work = this.startRequestWork(file, newChunks, hash, goStart)
+                //rNumber + 1 表示下一个文件是否还有位置处理
+                if (requestController.number < max) {
                     request.push(goStart())
                 }
                 //既要文件切片、哈希计算按顺序紧密执行，又不希望等上一个文件上传完毕，才开始上传下一个文件。因为代码放在一个函数执行，同时await，先当于等上一个文件上传完毕，才开始上传下一个文件
                 //while代码块，这里分开做处理，先handleFile，再push一个请求
-                return this.startRequestWork(file, newChunks, hash, goStart)
+                return await work
             }
             request.push(goStart())
             return Promise.all(request)
         },
         async startRequestWork($file: FileInfo, $newChunks: any, $hash: string, fn: () => Promise<string>) {
-            const callback = async (_file: FileInfo, _newChunks: any, _hash: string) => {
-                if (!_file) return 'done'
+            const callback = async (_file: (FileInfo | string), _newChunks: any, _hash: string) => {
+                if (_file === 'exist') {
+                    return fn()
+                }
                 _file.uploading = true
-                const result = await this.sendRequest(_file, _newChunks)
-                if (result.length === 0) return 'done'//表示已经上传过或没有下一个文件
+                await this.sendRequest(_file, _newChunks)
                 //做个是否已存在文件判断，存在，则不用合并文件
                 await this.mergeFile(_file.name, _hash, this.chunkSize)
                 _file.uploading = false
@@ -317,7 +355,7 @@ export default Vue.extend({
                 const file: FileInfo = requestController.nextFile()
                 console.log(file)
                 if (!file) {
-                    resolve([])
+                    resolve(['empty'])
                     return
                 }
                 const chunks = await this.fileSlice(file, 0)
@@ -333,7 +371,7 @@ export default Vue.extend({
                     params: { hash, ext }
                 })
                 if (uploaded) {//判断是否上传过
-                    resolve([])
+                    resolve(['exist'])
                     file.isUpload = true
                     file.progress = 100
                     return 
