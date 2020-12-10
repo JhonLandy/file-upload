@@ -37,3 +37,7 @@ ul, li, p {margin:0; padding: 0}
     font-weight: blod;
     color: orange;
 }
+.error {
+    font-size: 12px;
+    color: #ff0000;
+}

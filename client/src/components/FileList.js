@@ -23,7 +23,7 @@ export default {
             <ul>
                 {fileList.map(file =>  
                     (<li class={"item"}>
-                        <p class={'file-name'}>{file.name}</p>
+                        <p class={file.stop ? 'error' : 'file-name' }>{file.name}</p>
                         {
                             file.uploading 
                             ? <progress class={'upload-progress'} min="0" max="100" value={file.progress}/>

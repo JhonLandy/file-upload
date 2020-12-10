@@ -71,21 +71,17 @@ class RequestController {
     }
     send(currentFile, chunks) {
         return new Promise<any>(resolve => {
-             const current = chunks.shift()
+            const current = chunks.shift()
             if (!current) {
                 resolve([])
                 return
             }
-            this.number++
             const { form, chunk } = current
             Request().post('/upload', form,  {
                 onUploadProgress: async (progressEvent) => {
                     currentFile.progress += (progressEvent.loaded - chunk.loaded) / currentFile.size * 100
                     chunk.loaded = progressEvent.loaded
                 }
-            })
-            .then(() => {
-                this.number--
             })
             .catch(() => {
                 current.chunk.error++
@@ -124,15 +120,11 @@ class RequestController {
 }
 
 const formatMap = {
-    'jpg': 'FFD8FFE00104A46',
-    'jpeg': 'FFD8FFE00104A46',
-    'png': '89504E47DA1AA',
-    'zip': '504B34A000',
-    'doc': 'D0CF11E0A1B11AE1',
-    'docx': '504B3414060',
-    'exe': '4D5A7801000',
-    'md': '2D2D2DDAE5898D',
-    'js': '636C617373204172',
+    'jpg': 'FFD8FF',
+    'gif': '47494638',
+    'png': '89504E47',
+    'zip': '504B0304',
+    'rar': '52617221'
 }
 export default Vue.extend({
 
@@ -150,7 +142,7 @@ export default Vue.extend({
         number: 0,
         fileQueue: [],//当前正在上传的文件队列,
         // chunksMap: new Map(),//各个文件的切片hashmap
-        format: ['gif', 'jpg', 'jpeg', 'zip', 'docx'],
+        format: ['gif', 'jpg', 'jpeg', 'png', 'zip'],
         fileBinaryStringSet: new Set()
     }),
 
@@ -238,26 +230,30 @@ export default Vue.extend({
             })
         },
         caculateHash(filer: FileInfo): Promise<string> {
-            //参照散列的思想，不进行文件的全量hash计算，减少hash的计算量
             const chunks: (Blob []) = []
             const file: File = filer.file
-            const offset =  1024  * 2 * 1024
-
-            let start = 0
-            let mid = start + offset / 2
-            let end = start + offset
-            
-            while (start < filer.size) {
-                if (end >= filer.size) {
-                    chunks.push(file.slice(end - 2, end))//最后一块不够 散列
-                } else {
-                    chunks.push(file.slice(start, start + 2))
-                    chunks.push(file.slice(mid, mid + 2))
-                    chunks.push(file.slice(end - 2, end))
+            if (filer.size < 1024 * 1024 * 2) {
+                chunks.push(file)
+            } else {
+                //参照散列的思想，不进行文件的全量hash计算，减少hash的计算量
+                const offset =  1024  * 2 * 1024
+    
+                let start = 0
+                let mid = start + offset / 2
+                let end = start + offset
+                
+                while (start < filer.size) {
+                    if (end >= filer.size) {
+                        chunks.push(file.slice(end - 2, end))//最后一块不够 散列
+                    } else {
+                        chunks.push(file.slice(start, start + 2))
+                        chunks.push(file.slice(mid, mid + 2))
+                        chunks.push(file.slice(end - 2, end))
+                    }
+                    start += offset
+                    mid = start + offset / 2
+                    end = start + offset
                 }
-                start += offset
-                mid = start + offset / 2
-                end = start + offset
             }
 
             return new Promise(resovle => {
@@ -281,23 +277,27 @@ export default Vue.extend({
             const fileQueue = this.confirmUplodeFile(this.fileList)
             const isAllow = await this.verifyFile(fileQueue)
             console.log('文件是否通过格式检查', isAllow)
-            if (!isAllow) {
-                throw '文件格式不正确';
-            }
-            requestController = new RequestController(fileQueue)
            
-            const request = []
+            requestController = new RequestController(fileQueue, 4)
             const max = requestController.max()
-            while (this.number++ < max) {
+
+            const request = []
+            const goStart = async () => {
                 const result = await this.handleFile()
                 const [file, newChunks, hash] = result as Array<any>
+                if (!file) return 'done'
+                //max - 1 是为了防止还没上传（未开始请求），多传一个文件
+                if (requestController.number < max - 1) {
+                    request.push(goStart())
+                }
                 //既要文件切片、哈希计算按顺序紧密执行，又不希望等上一个文件上传完毕，才开始上传下一个文件。因为代码放在一个函数执行，同时await，先当于等上一个文件上传完毕，才开始上传下一个文件
                 //while代码块，这里分开做处理，先handleFile，再push一个请求
-                request.push(this.startRequestWork(file, newChunks, hash))
+                return this.startRequestWork(file, newChunks, hash, goStart)
             }
+            request.push(goStart())
             return Promise.all(request)
         },
-        async startRequestWork($file: FileInfo, $newChunks: any, $hash: string) {
+        async startRequestWork($file: FileInfo, $newChunks: any, $hash: string, fn: () => Promise<string>) {
             const callback = async (_file: FileInfo, _newChunks: any, _hash: string) => {
                 if (!_file) return 'done'
                 _file.uploading = true
@@ -308,12 +308,14 @@ export default Vue.extend({
                 _file.uploading = false
                 _file.progress = 100
                 _file.isUpload = true
+                return fn()
             }
             return callback($file, $newChunks, $hash)
         },
         handleFile(): Promise<string | Array<any> >{
             const callback = async resolve => {
                 const file: FileInfo = requestController.nextFile()
+                console.log(file)
                 if (!file) {
                     resolve([])
                     return
@@ -366,16 +368,30 @@ export default Vue.extend({
         },
         async allowFile(file) {
             const res = await this.readFile(file)
+            const code = this.fileBinaryStringSet.values()
             console.log(res)
-            return this.fileBinaryStringSet.has(res)
+            let result = this.fileBinaryStringSet.size > 0 ? false : true
+            for (const value of code) {
+                if (new RegExp(`${value}`).test(res)) {
+                    result = true
+                    break
+                }
+            }
+            if (!result) {
+                file.stop = true
+                throw `文件格式不对，请上传${this.format.join('、')}格式`
+            } else {
+                file.stop = false
+                return result
+            }
         },
         readFile({ file }) {
             return new Promise(resolve => {
                 const reader = new FileReader()
                 reader.onload = function() {
                     const result = (reader.result as ArrayBuffer)//读取数据
-                    const arr = [...new Uint8Array(result).slice(0, 8)]//获取一个8位无符号整型数组
-                    resolve(arr.map(v =>  v.toString(16).toUpperCase()).join(''))//获取文件格式十六进制
+                    const arr = [...new Uint8Array(result).slice(0, 10)]//获取一个8位无符号整型数组
+                    resolve(arr.map(v => v < 10 ? '0' + v.toString(16) : v.toString(16).toUpperCase()).join(''))//获取文件格式十六进制
                 }
                 reader.readAsArrayBuffer(file)
             })
