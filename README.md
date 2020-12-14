@@ -208,24 +208,40 @@ new Promise((resovle, reject) => {
  ##### 并发控制
  
  ```js
- send(currentFile, chunks, queue, resolve) {
-if (this.rNumber >= this.MaxR) {
-    return Promise.resolve('请求过多，不接受请求')
-}
-//....
-.then(() => {
-    this.rNumber--
-})
-.catch(() => {
-    current.chunk.error++
-    alert('错误重传')
-    if (current.chunk.error < 3) {
-        chunks.unshift(current)
+class RequestController {
+ //....
+ constructor(file = [], MaxR = 4) {
+  //...
+ }
+ send(currentFile, chunks, queue, resolve) { 
+    if (this.rNumber >= this.MaxR) {
+       return Promise.resolve('请求过多，不接受请求')
     }
-})
-.finally(() => {
-    this.actions(currentFile, chunks, queue, resolve)
-})
+    //....
+    return Request().post('/upload', form,  {
+        onUploadProgress: async (progressEvent) => {
+            currentFile.progress += (progressEvent.loaded - chunk.loaded) / currentFile.size * 100
+            chunk.loaded = progressEvent.loaded
+        }
+    })
+    .then(() => {
+        this.rNumber--
+    })
+    .then(() => {
+        this.rNumber--
+    })
+    .catch(() => {
+        current.chunk.error++
+        alert('错误重传')
+        if (current.chunk.error < 3) {
+            chunks.unshift(current)
+        }
+    })
+    .finally(() => {
+        this.actions(currentFile, chunks, queue, resolve)
+    })
+  }
+}
  ```
  这段代码对切片 会进行错误重传，应为切片在上传的过程中还是会有概率发生上传失败。
  
