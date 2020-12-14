@@ -2,6 +2,8 @@
 
 这个功能前端是基于vue-cli4,后端是基于egg
 
+![image](https://github.com/JhonLandy/file-upload/blob/master/%E6%96%AD%E7%82%B9%E7%BB%AD%E4%BC%A0.gif)
+
 ## 使用
 
 下载
