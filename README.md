@@ -55,7 +55,7 @@ npm run dev
 - async/await
 - vue
 - node
-- 函数值组件（jsx）
+- <a href='https://github.com/JhonLandy/file-upload/blob/master/client/src/components/FileList.js'>函数值组件（jsx）</a>
 
 ## 代码分析(只包括前端)
 
