@@ -6,24 +6,23 @@
 
 ## 使用
 
-下载
-
+download
 ```bash
-  git clone https://github.com/JhonLandy/file-upload.git
+git clone https://github.com/JhonLandy/file-upload.git
 ```
 
-客户端
-
+client
 ```bash
-  cd file-upload/client
-  npm install
-  npm run dev
+cd file-upload/client
+npm install
+npm run dev
 ```
-服务端
+
+server
 ```bash
-  cd file-upload/server
-  npm install
-  npm run dev
+cd file-upload/server
+npm install
+npm run dev
 ```
 
 ## 功能点
@@ -49,6 +48,7 @@
      - 切片上传出错，重传三次。
   
   - 但是，还有些问题，因为浏览器的并发数过大，会造成一丢丢卡顿，最后还需要控制文件并行数，请求并行数。
+  - 最后，当<strong>上传的文件数</strong>少于<strong>最大上传文件数</strong>, 通过算法，是否为正在上传文件添加请求数，加快上传速度
 
 ## 代码分析
 
