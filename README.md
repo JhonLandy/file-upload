@@ -227,9 +227,6 @@ class RequestController {
     .then(() => {
         this.rNumber--
     })
-    .then(() => {
-        this.rNumber--
-    })
     .catch(() => {
         current.chunk.error++
         alert('错误重传')
