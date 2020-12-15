@@ -6,19 +6,19 @@
 
 ## 使用
 
-download
+### Download
 ```bash
 git clone https://github.com/JhonLandy/file-upload.git
 ```
 
-client
+### Client
 ```bash
 cd file-upload/client
 npm install
 npm run dev
 ```
 
-server
+### Server
 ```bash
 cd file-upload/server
 npm install
