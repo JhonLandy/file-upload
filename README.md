@@ -59,7 +59,7 @@ npm run dev
 
 ## 代码分析(只包括前端)
 
-主要讲解一下大致的逻辑，过程涉及到比较细节的处理都在代码里体现了。
+主要讲解一下大致的逻辑，过程涉及到比较细节的处理都在代码里体现了。文件在这：<a href='https://github.com/JhonLandy/file-upload/blob/master/client/src/App.vue'>App.vue</a>
 
 ### 简单操作
 
