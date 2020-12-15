@@ -107,26 +107,26 @@ await this.mergeFile(_file.name, _hash, this.chunkSize)//合并文件
 安排文件在浏览器空闲时上传，不影响主线程做渲染、用户交互操作。重点是：requestIdleCallback！！！
 
 ```js
- fileSlice(filer: FileInfo, start: number): Promise<Chunk []> {
-      const chunkSize: number = this.chunkSize
-      const end = start + chunkSize
-      const file = filer.file
-      const chunk = file.slice(start, end)
-      return new Promise(resolve => {
-          requestIdleCallback(async () => {
-              if (chunk.size === 0) {
-                  resolve([])
-              } else {
-                  resolve([{
-                      loaded: 0,
-                      chunk,
-                      size: Number(chunk.size),
-                      error: 0
-                  } as Chunk, ...await this.fileSlice(filer, end)])
-              } 
-          })
-      })
-  },
+fileSlice(filer: FileInfo, start: number): Promise<Chunk []> {
+    const chunkSize: number = this.chunkSize
+    const end = start + chunkSize
+    const file = filer.file
+    const chunk = file.slice(start, end)
+    return new Promise(resolve => {
+        requestIdleCallback(async () => {
+            if (chunk.size === 0) {
+                resolve([])
+            } else {
+                resolve([{
+                    loaded: 0,
+                    chunk,
+                    size: Number(chunk.size),
+                    error: 0
+                } as Chunk, ...await this.fileSlice(filer, end)])
+            } 
+        })
+    })
+}
 
 ```
 
@@ -136,7 +136,7 @@ await this.mergeFile(_file.name, _hash, this.chunkSize)//合并文件
 
  在worker处理方面，不管要上传多少文件，浏览器只启动一个worker，每一个文件的hash计算，放进队列，等待worker一一计算。
  ```js
- class WorkerController {
+class WorkerController {
     queue = [];
     //....
     push(handler) {
@@ -159,7 +159,7 @@ await this.mergeFile(_file.name, _hash, this.chunkSize)//合并文件
 
  下面代码是计算hash的逻辑，参考布隆过滤器的散列思想，对大文件hash计算做处理，减少耗时。
  ```js
- if (filer.size < 1024 * 1024 * 2) {
+if (filer.size < 1024 * 1024 * 2) {
   chunks.push(file)
 } else {
   //参照散列的思想，不进行文件的全量hash计算，减少hash的计算量
@@ -181,11 +181,12 @@ await this.mergeFile(_file.name, _hash, this.chunkSize)//合并文件
       mid = start + offset / 2
       end = start + offset
   }
+}
  ```
  
 - 计算超时处理： 
  ```js
- return Promise.race([new Promise((resovle, reject) => {
+return Promise.race([new Promise((resovle, reject) => {
     //....
     workerController.push(hander)
 }),
@@ -238,39 +239,39 @@ mergeFile(filename: string, hash: string, size: string): Promise<any> {
 #### 并发控制：
 
 下面这段代码对切片 会进行错误重传，应为切片在上传的过程中还是会有概率发生上传失败。
- ```js
+```js
 class RequestController {
- //....
- constructor(file = [], MaxR = 4) {
-  //...
- }
- send(currentFile, chunks, queue, resolve) { 
-    if (this.rNumber >= this.MaxR) {
-       return Promise.resolve('请求过多，不接受请求')
+   //....
+   constructor(file = [], MaxR = 4) {
+    //...
+   }
+   send(currentFile, chunks, queue, resolve) { 
+      if (this.rNumber >= this.MaxR) {
+         return Promise.resolve('请求过多，不接受请求')
+      }
+      //....
+      return Request().post('/upload', form,  {
+          onUploadProgress: async (progressEvent) => {
+              currentFile.progress += (progressEvent.loaded - chunk.loaded) / currentFile.size * 100
+              chunk.loaded = progressEvent.loaded
+          }
+      })
+      .then(() => {
+          this.rNumber--
+      })
+      .catch(() => {
+          current.chunk.error++
+          alert('错误重传')
+          if (current.chunk.error < 3) {
+              chunks.unshift(current)
+          }
+      })
+      .finally(() => {
+          this.actions(currentFile, chunks, queue, resolve)
+      })
     }
-    //....
-    return Request().post('/upload', form,  {
-        onUploadProgress: async (progressEvent) => {
-            currentFile.progress += (progressEvent.loaded - chunk.loaded) / currentFile.size * 100
-            chunk.loaded = progressEvent.loaded
-        }
-    })
-    .then(() => {
-        this.rNumber--
-    })
-    .catch(() => {
-        current.chunk.error++
-        alert('错误重传')
-        if (current.chunk.error < 3) {
-            chunks.unshift(current)
-        }
-    })
-    .finally(() => {
-        this.actions(currentFile, chunks, queue, resolve)
-    })
-  }
 }
- ```
+```
  
  
  
