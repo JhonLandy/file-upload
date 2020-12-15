@@ -73,7 +73,7 @@ async doUpload() {
     .then(result => {
         console.log('上传结果' + result)
     })
-    .catch(error => {//捕抓上中的所有错误
+    .catch(error => {//统一处理上传中的所有错误
         if (typeof error === 'string') {
             this.$message.error(error)
         } else {
