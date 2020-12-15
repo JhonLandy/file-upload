@@ -59,7 +59,7 @@ npm run dev
 
 主要讲解一下大致的逻辑，过程涉及到比较细节的处理都在代码里体现了。
 
-- 简单操作
+### 简单操作
 
 点击上传，启动worker, 开始上传, 上传结束，终止worker。
 ```js
@@ -85,39 +85,26 @@ async doUpload() {
     })
 }
 ```
-- 主题逻辑：
+### 主题逻辑：
 
- 下面代码整个过程就是这样：文件切片、hash计算、发送切片、合并切片。最后说明一下控制请求并发。
- 
- ```js
-  /*省略*/
-  const chunks = await this.fileSlice(file, 0)// 文件切片
-  const hash = await this.caculateHash(file)//计算hash
-  /*省略*/
-  
-  const newChunks = chunks//过滤上传过的分片
-    .filter((_, index: number) => !chunkMap[`${hash}-${index}`])
-    .map((chunk: Chunk, index: number) => {
-        const form = new FormData()
-        form.append('name', `${hash}-${index}`)
-        form.append('type', file.type)
-        form.append('size', String(file.size))
-        form.append('hash', hash)
-        form.append('file', chunk.chunk)
-        return {
-            form,
-            index,
-            chunk
-        }
-  })
-  /*省略*/
- await this.mergeFile(_file.name, _hash, this.chunkSize)//合并文件
- /*省略*/
- ```
+下面代码整个过程就是这样：文件切片、hash计算、发送切片、合并切片。最后说明一下控制请求并发。
+
+```js
+
+const chunks = await this.fileSlice(file, 0)// 文件切片
+const hash = await this.caculateHash(file)//计算hash
+
+...
+
+await this.sendRequest(_file, _newChunks)//发送切片
+...
+await this.mergeFile(_file.name, _hash, this.chunkSize)//合并文件
+
+```
 
 #### 文件切片：
 
-安排文件在浏览器空闲时上传，不影响主线程做渲染、用户交互操作
+安排文件在浏览器空闲时上传，不影响主线程做渲染、用户交互操作。重点是：requestIdleCallback！！！
 
 ```js
  fileSlice(filer: FileInfo, start: number): Promise<Chunk []> {
@@ -213,7 +200,39 @@ new Promise((resovle, reject) => {
     throw error
 })
  ```
- 
+#### 分片发送
+使用axios这个库，进行分片发送。
+```js
+...
+
+const form = new FormData()
+form.append('name', `${hash}-${index}`)
+form.append('type', file.type)
+form.append('size', String(file.size))
+form.append('hash', hash)
+form.append('file', chunk.chunk)
+...
+
+return Request().post('/upload', form,  {
+  onUploadProgress: async (progressEvent) => {
+      currentFile.progress += (progressEvent.loaded - chunk.loaded) / currentFile.size * 100
+      chunk.loaded = progressEvent.loaded
+  }
+})
+```
+#### 合并切片
+调用接口，告诉后端进行文件切分合并，通过hash定位文件切片
+```js
+mergeFile(filename: string, hash: string, size: string): Promise<any> {
+    const [name, ext] = this.getSuffix(filename)
+    return Request().post(`/merge`, {
+        hash,
+        ext,
+        size 
+    })
+}
+```
+
 #### 并发控制：
 
 下面这段代码对切片 会进行错误重传，应为切片在上传的过程中还是会有概率发生上传失败。
