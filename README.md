@@ -84,7 +84,7 @@ async doUpload() {
     })
 }
 ```
-##### 详细分析：
+### 详细分析：
 
  整个过程就是这样：文件切片、hash计算、发送切片、合并切片。下面说明一下worker是什么计算hash和控制请求并发。
  
@@ -114,7 +114,7 @@ async doUpload() {
  /*省略*/
  ```
 
-#####  文件切片
+####  文件切片：
 安排文件在浏览器空闲时上传，不影响主线程做渲染、用户交互操作
 
 ```js
@@ -141,9 +141,10 @@ async doUpload() {
 
 ```
 
-##### worker
- 
- 在worker处理方面，不管要上传多少文件，浏览器只启动一个worker，每一个文件的hash计算，放进队列，等待worker一一计算。在计算hahs过程中，有可能文件计算hash失去了响应，这里做了一些超时处理。
+#### worker：
+
+- 队列处理：
+ 在worker处理方面，不管要上传多少文件，浏览器只启动一个worker，每一个文件的hash计算，放进队列，等待worker一一计算。
  ```js
  class WorkerController {
     queue = [];
@@ -164,27 +165,8 @@ async doUpload() {
     }
 }
  ```
-hash超时处理： 
- ```js
- return Promise.race([new Promise((resovle, reject) => {
-    //....
-    workerController.push(hander)
-}),
-new Promise((resovle, reject) => {
-    errorId = setTimeout(() => {
-        filer.stop = true
-        reject('计算hash超时') 
-    }, 30 * 1000);
-})])
-.then(hash => {
-    clearTimeout(errorId)
-    return hash
-}, error => {
-    throw error
-})
- ```
- 
- 这是计算hash的逻辑，参考布隆过滤器的散列思想，对大文件hash计算做处理，减少耗时。
+- 计算规则
+ 下面代码是计算hash的逻辑，参考布隆过滤器的散列思想，对大文件hash计算做处理，减少耗时。
  ```js
  if (filer.size < 1024 * 1024 * 2) {
   chunks.push(file)
@@ -210,8 +192,29 @@ new Promise((resovle, reject) => {
   }
  ```
  
- ##### 并发控制
+- 计算超时处理： 
+ ```js
+ return Promise.race([new Promise((resovle, reject) => {
+    //....
+    workerController.push(hander)
+}),
+new Promise((resovle, reject) => {
+    errorId = setTimeout(() => {
+        filer.stop = true
+        reject('计算hash超时') 
+    }, 30 * 1000);
+})])
+.then(hash => {
+    clearTimeout(errorId)
+    return hash
+}, error => {
+    throw error
+})
+ ```
  
+### 并发控制：
+
+下面这段代码对切片 会进行错误重传，应为切片在上传的过程中还是会有概率发生上传失败。
  ```js
 class RequestController {
  //....
@@ -245,7 +248,7 @@ class RequestController {
   }
 }
  ```
- 这段代码对切片 会进行错误重传，应为切片在上传的过程中还是会有概率发生上传失败。
+ 
  
  
  
