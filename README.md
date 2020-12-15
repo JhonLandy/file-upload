@@ -133,6 +133,7 @@ await this.mergeFile(_file.name, _hash, this.chunkSize)//合并文件
 #### hash计算：
 
 - 队列处理：
+
  在worker处理方面，不管要上传多少文件，浏览器只启动一个worker，每一个文件的hash计算，放进队列，等待worker一一计算。
  ```js
  class WorkerController {
@@ -155,6 +156,7 @@ await this.mergeFile(_file.name, _hash, this.chunkSize)//合并文件
 }
  ```
 - 计算规则
+
  下面代码是计算hash的逻辑，参考布隆过滤器的散列思想，对大文件hash计算做处理，减少耗时。
  ```js
  if (filer.size < 1024 * 1024 * 2) {
@@ -201,7 +203,7 @@ new Promise((resovle, reject) => {
 })
  ```
 #### 分片发送
-使用axios这个库，进行分片发送。
+使用axios这个库，进行分片发送，同时计算上传进度。
 ```js
 ...
 
@@ -214,7 +216,7 @@ form.append('file', chunk.chunk)
 ...
 
 return Request().post('/upload', form,  {
-  onUploadProgress: async (progressEvent) => {
+  onUploadProgress: async (progressEvent) => {//这里有一误差，误差可能来源于请求头的资源大小
       currentFile.progress += (progressEvent.loaded - chunk.loaded) / currentFile.size * 100
       chunk.loaded = progressEvent.loaded
   }
