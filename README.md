@@ -55,6 +55,7 @@ npm run dev
 - async/await
 - vue
 - node
+- 函数值组件（jsx）
 
 ## 代码分析(只包括前端)
 
