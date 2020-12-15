@@ -52,6 +52,7 @@ npm run dev
 - typescript
 - axios
 - promise
+- async/await
 - vue
 - node
 
