@@ -56,6 +56,7 @@ npm run dev
 - vue
 - node
 - <a href='https://github.com/JhonLandy/file-upload/blob/master/client/src/components/FileList.js'>函数值组件（jsx）</a>
+- h5(FileReader、readAsArrayBuffer、Uint8Array)
 
 ## 代码分析(只包括前端)
 
@@ -190,7 +191,16 @@ if (filer.size < 1024 * 1024 * 2) {
  ```js
 return Promise.race([new Promise((resovle, reject) => {
     //....
-    workerController.push(hander)
+    workerController.push(worker => {
+        worker.onerror = () => {
+            reject('There is an error with your worker!')
+        }   
+        worker.postMessage(new Blob(chunks))//发送切片计算hash
+        worker.onmessage = (event: any) => {
+            const {data: hash} = event
+            resovle(hash)
+        }
+    })
 }),
 new Promise((resovle, reject) => {
     errorId = setTimeout(() => {
