@@ -1,8 +1,8 @@
-# 多文件断点续传
+# 🚀多文件断点续传
 
 ![image](https://github.com/JhonLandy/file-upload/blob/master/%E6%96%AD%E7%82%B9%E7%BB%AD%E4%BC%A01.0.gif)
 
-## 使用
+## 🎉使用
 
 ### Download
 ```bash
@@ -23,7 +23,7 @@ npm install
 npm run dev
 ```
 
-## 功能点
+## 🎉功能点
 
 1. 16进制文件头信息判断文件格式
 2. 大文件分片上传
@@ -31,7 +31,7 @@ npm run dev
 4. 文件秒传
 5. 多文件断点续传
 
-## 思路
+## 🎉思路
 
   - 首先，利用16进制文件头信息判断文件类型。因为这部分信息是唯一的，修改了文件后缀还是能正确出来，从而限制文件类型。
   
@@ -47,7 +47,7 @@ npm run dev
   - 但是，还有些问题，因为浏览器的并发数过大，会造成一丢丢卡顿，最后还需要控制文件并行数，请求并行数。
   - 最后，当上传文件数和并发请求数小于上限时，通过算法，为正在上传文件添加新请求，加快上传速度。
   
-## 技术点
+## 🎉技术点
 
 - typescript
 - axios
@@ -58,7 +58,7 @@ npm run dev
 - <a href='https://github.com/JhonLandy/file-upload/blob/master/client/src/components/FileList.js'>函数值组件（jsx）</a>
 - h5(FileReader、readAsArrayBuffer、Uint8Array)
 
-## 代码分析(只包括前端)
+## 🎉代码分析(只包括前端)
 
 主要讲解一下大致的逻辑，过程涉及到比较细节的处理都在代码里体现了。文件在这：<a href='https://github.com/JhonLandy/file-upload/blob/master/client/src/App.vue'>App.vue</a>
 
